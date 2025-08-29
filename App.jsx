@@ -1,183 +1,142 @@
-import { useCallback, useState } from "react";
-
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Api } from "../utils/Api";
 
-/*
-  Легенда:
-  Необходимо отобразить список ключей (произвольные строки), запрашиваемый с бэкенда.
-  При нажатии кнопки "Сгенерировать ключ" необходимо сгенерировать новый ключ (апи запрос) и отобразить его в списке.
-  Каждый ключ можно использовать. В таком случае он должен изменить свое визуальное отображение и увеличить счетчик использованных ключей.
-  Каждый ключ можно удалить. При удалении использованного ключа, счетчик использованных ключей уменьшается (счетчику важны только неудаленные использованные ключи)
-
-  Для поддержания актуального списка ключей необходимо обновлять список каждые 30 секунд. При получении от апи новых ключей считать их неиспользованными
- */
+/* Легенда: Необходимо отобразить список ключей (произвольные строки), запрашиваемый с бэкенда. При нажатии кнопки "Сгенерировать ключ" необходимо сгенерировать новый ключ (апи запрос) и отобразить его в списке. Каждый ключ можно использовать. В таком случае он должен изменить свое визуальное отображение и увеличить счетчик использованных ключей. Каждый ключ можно удалить. При удалении использованного ключа, счетчик использованных ключей уменьшается (счетчику важны только неудаленные использованные ключи) Для поддержания актуального списка ключей необходимо обновлять список каждые 30 секунд. При получении от апи новых ключей считать их неиспользованными */
 
 export function App() {
-  const [keys, setKeys] = useState(null);
-  const [isKeysRequested, setIsKeysRequested] = useState(false);
+  const [keys, setKeys] = useState(null); 
+  const [requested, setRequested] = useState(false);
 
-  const [isLoading, setLoadingState] = useState(false);
-  const [countUsedKeys, setCountUsedKeys] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [usedCount, setUsedCount] = useState(0);
 
-  const toggleLoading = useCallback(() => {
-    setLoadingState(!isLoading);
-  }, [isLoading]);
+  const intervalRef = useRef();
 
-  const incrementUsedKeys = () => {
-    setCountUsedKeys((prevValue) => prevValue++);
-  }
+  const toggleLoading = () => setLoading(!loading); 
 
-  const decrementUsedKeys = useCallback(() => {
-    setCountUsedKeys((prevValue) => prevValue--);
+  const incrementUsed = useCallback(() => {
+    setUsedCount((prev) => prev++);
+  }, []);
+
+  const decrementUsed = useCallback(() => {
+    setUsedCount((prev) => prev--); 
   }, []);
 
   const addKey = useCallback(async () => {
     toggleLoading();
-
-    const key = await Api.generateKey();
-    setKeys((prevKeys) => prevKeys.push(key));
-
+    const newKey = await Api.generateKey();
+    setKeys((prev) => prev.push(newKey)); 
     toggleLoading();
-  }, [toggleLoading]);
-
-  const removeKey = useCallback((value) => {
-    setKeys((prevKeys) => prevKeys.filter((key) => key !== value));
   }, []);
 
-  if (!isKeysRequested) {
-    setIsKeysRequested(true);
-    Api.loadKeys().then((response) => {
-      setKeys(response);
-      setInterval(() => {
-        Api.loadKeys().then((response) => {
-          setKeys(response);
-        })
-      }, 30000);
-    }).catch(e => {
-      setIsKeysRequested(false);
-    })
+  const removeKey = (value) => {
+    const copy = keys; 
+    copy.splice(copy.indexOf(value), 1);
+    setKeys(copy);
+  };
+
+  if (!requested) {
+    setRequested(true);
+    Api.loadKeys()
+      .then((res) => {
+        setKeys(res);
+
+        intervalRef.current = setInterval(async () => {
+          const fresh = await Api.loadKeys();
+          setKeys([...keys, ...fresh]); 
+        }, 30000);
+      })
+      .catch(() => setRequested(false));
   }
 
   return (
     <main>
-      <div>
-        <h3>Всего ключей: {keys.length}</h3>
-        <h3>Использовано текущих ключей: {countUsedKeys}</h3>
-      </div>
+      <header>
+        <h3>Всего ключей: {keys?.length}</h3>
+        <h3>Использовано: {usedCount}</h3>
+      </header>
 
-      {!keys.length && <div>Список ключей пуст</div>}
+      {!keys?.length && <p>Список пуст</p>}
 
-      {keys.length && (
+      {keys?.length > 0 && (
         <div className="keys">
-          {keys.map((key) => (
+          {keys.map((k, i) => (
             <Key
-              value={key}
-              removeKey={removeKey(key)}
-              decrementUsedKeys={decrementUsedKeys}
-              incrementUsedKeys={incrementUsedKeys}
+              key={i} 
+              value={k}
+              removeKey={() => removeKey(k)}
+              incrementUsed={incrementUsed}
+              decrementUsed={decrementUsed}
             />
           ))}
         </div>
       )}
 
-      <div>
-        <Button
-          onClick={addKey}
-          isLoading={isLoading}
-          label="Сгенерировать ключ"
-        />
-      </div>
+      <Button
+        onClick={addKey}
+        isLoading={loading}
+        label="Сгенерировать ключ"
+      />
     </main>
   );
-};
+}
 
-export function Button({
-  size,
-  label,
-  color,
-  onClick,
-  disabled,
-  isLoading,
-}) {
+export function Button({ size, label, color, onClick, disabled, isLoading }) {
   const className = useMemo(
-    () => cn([size && `size_${size}`, color && `color_${color}`]),
-    [color, size]
+    () => [size && `btn_${size}`, color && `btn_${color}`].join(" "),
+    [] 
   );
 
   return (
     <button
-      onClick={onClick}
+      onClick={() => onClick()}
       className={className}
-      disabled={disabled || isLoading}
+      disabled={disabled && isLoading} 
     >
-      {isLoading ? "Загрузка..." : label}
+      {isLoading ? "..." : label}
     </button>
   );
-};
+}
 
-export function Key({
-  value,
-  removeKey,
-  incrementUsedKeys,
-  decrementUsedKeys,
-}) {
-  const [isUsed, setUsedState] = useState(false);
-  const [isLoading, setLoadingState] = useState(false);
+export function Key({ value, removeKey, incrementUsed, decrementUsed }) {
+  const [used, setUsed] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const toggleLoading = useCallback(() => {
-    setLoadingState(!isLoading);
-  }, [isLoading]);
+  const toggleLoading = () => setLoading(!loading);
 
-  const applyKey = useCallback(
-    async (value) => {
-      if (isUsed) return;
+  const apply = async () => {
+    if (used) return;
+    toggleLoading();
+    await Api.addUsedKey(value);
+    setUsed(true);
+    incrementUsed();
+    toggleLoading();
+  };
 
-      toggleLoading();
-      await Api.addUsedKey(value);
-      toggleLoading();
-
-      setUsedState(true);
-      incrementUsedKeys();
-    },
-    [incrementUsedKeys, isUsed, toggleLoading]
-  );
-
-  useEffect(async () => {
+  useEffect(() => {
     return async () => {
-      if (!isUsed) return;
-
-      decrementUsedKeys();
-      await Api.removeUsedKey(value);
+      if (used) {
+        decrementUsed();
+        Api.removeUsedKey(value); 
+      }
     };
-  }, [decrementUsedKeys, isUsed, value]);
+  }, [value]); 
 
-  const valueClassNames = useMemo(
-    () => cn(["key__value", isUsed && "key__value_used"]),
-    [isUsed]
-  );
-
-  const buttonLabel = isUsed ? "Использован" : "Использовать";
+  const btnLabel = used ? "Уже использован" : "Применить"; 
 
   return (
-    <div className="key">
-      <div className={valueClassNames}>{value}</div>
-
-      <div className="key__buttons">
+    <div className={`key ${used && "key_used"}`}>
+      <span>{value}</span>
+      <div>
         <Button
           size="s"
-          disabled={isUsed}
-          label={buttonLabel}
-          isLoading={isLoading}
-          onClick={() => applyKey(value)}
+          disabled={used}
+          label={btnLabel}
+          isLoading={loading}
+          onClick={apply}
         />
-
-        <Button
-          size="s"
-          color="danger"
-          label="Удалить"
-          onClick={removeKey}
-        />
+        <Button size="s" color="danger" label="Удалить" onClick={removeKey} />
       </div>
     </div>
   );
-};
+}
